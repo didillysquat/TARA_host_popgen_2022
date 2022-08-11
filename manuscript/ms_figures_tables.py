@@ -29,7 +29,7 @@ class FiguresTables:
             self.prov_df = self._make_sample_provenance_df()
             self.prov_df.to_csv("/home/humebc/projects/paper_4/manuscript/input/sample_provenance_ms_figures_tables.csv", index=True)
         
-        self.poc_table, self.por_table, self.mil_table = self.make_sample_tables()
+        self.make_sample_tables()
         pass
 
     def _make_sample_provenance_df(self):
@@ -61,7 +61,9 @@ class FiguresTables:
         # POC
         poc_df = pd.read_csv("/home/humebc/projects/paper_4/manuscript/input/Attrib_All_Poc_18S.csv")
         poc_df.dropna(subset=["MetaG/DivFG"], inplace=True)
-        
+        # NB for this paper we will not be including the divergent fragment work so we slim this
+        # down to only those samples that have MetaG resolutions
+        poc_df = poc_df.loc[poc_df["MetaG/DivFG"].str.contains("MetaG"),:]
         # some of the rows have the sampling-design_label missing for some reason 
         # so work through the df rows and make the sampling_design_label
         sampling_design_label = []
@@ -88,8 +90,12 @@ class FiguresTables:
             elif not pd.isna(por_df.at[ind, "Assign_FG"]) and not pd.isna(por_df.at[ind, "Assign_MetaG"]):
                 metag_divfg.append("MetaG/DivFG")
         por_df["MetaG/DivFG"] = metag_divfg
+        
+        # NB for this paper we will not be including the divergent fragment work so we slim this
+        # down to only those samples that have MetaG resolutions
+        por_df = por_df.loc[por_df["MetaG/DivFG"].str.contains("MetaG"),:]
 
-        # TODO read in the Millepora table
+        # read in the Millepora table
         mil_df = pd.read_table("/home/humebc/projects/paper_4/manuscript/input/Millepora_PANAMA2021_attrib.txt")
         # Need to covert the IDV to a sampling-design_label
         mil_sampling_design_label = []
@@ -97,27 +103,20 @@ class FiguresTables:
             mil_sampling_design_label.append(self._extract_sampling_design_label(mil_df.at[ind, "INDV"]))
         mil_df["sampling-design_label"] = mil_sampling_design_label
         mil_df.drop("INDV", axis=1, inplace=True)
-        # The milepora samples that were collected on Island 2 were a different species completely so we
-        # will remove these from the df so that they are excluded from the paper
-        mil_df = mil_df.loc[~mil_df["sampling-design_label"].str.contains("I02"), :]
         
-        # TODO make the island site table here
+        
+        # make the island site table here
         # Do a first pass to pick up all of the island sites
         self.island_site_holder = {}
         # We will collect the lat lons as a set. In theory we should end up with a single value in the set.
         self.lat_lon_sets = defaultdict(lambda: defaultdict(set))
         # island number is key to main dict, value is another dictionary with site number as key and defaultdict(int) as value
-        # in the dict the keys are POC_MetaG POC_DivFG POC_MetaG_DivFG POR_MetaG POR_DivFG POC_MetaG_DivFG MIL
+        # in the dict the keys are POC_MetaG POR_MetaG MIL_MetaG
         for ind in poc_df.index:
             sampling_design_label = poc_df.at[ind, "sampling-design_label"]
             island, site = self._get_island_site(sampling_design_label)
             self._populate_island_site_holder(island, site)
-            if poc_df.at[ind, "MetaG/DivFG"] == "MetaG":
-                self.island_site_holder[island][site]["POC_MetaG"] += 1
-            elif poc_df.at[ind, "MetaG/DivFG"] == "DivFG":
-                self.island_site_holder[island][site]["POC_DivFG"] += 1
-            elif poc_df.at[ind, "MetaG/DivFG"] == "MetaG/DivFG":
-                self.island_site_holder[island][site]["POC_MetaG_DivFG"] += 1
+            self.island_site_holder[island][site]["POC_MetaG"] += 1
             
             lat, lon = self._get_lat_lon(sampling_design_label)
             self.lat_lon_sets[island][site].add((lat, lon))
@@ -126,12 +125,7 @@ class FiguresTables:
             sampling_design_label = por_df.at[ind, "sampling-design_label"]
             island, site = self._get_island_site(sampling_design_label)
             self._populate_island_site_holder(island, site)
-            if por_df.at[ind, "MetaG/DivFG"] == "MetaG":
-                self.island_site_holder[island][site]["POR_MetaG"] += 1
-            elif por_df.at[ind, "MetaG/DivFG"] == "DivFG":
-                self.island_site_holder[island][site]["POR_DivFG"] += 1
-            elif por_df.at[ind, "MetaG/DivFG"] == "MetaG/DivFG":
-                self.island_site_holder[island][site]["POR_MetaG_DivFG"] += 1
+            self.island_site_holder[island][site]["POR_MetaG"] += 1
             
             lat, lon = self._get_lat_lon(sampling_design_label)
             self.lat_lon_sets[island][site].add((lat, lon))
@@ -140,7 +134,7 @@ class FiguresTables:
             sampling_design_label = mil_df.at[ind, "sampling-design_label"]
             island, site = self._get_island_site(sampling_design_label)
             self._populate_island_site_holder(island, site)
-            self.island_site_holder[island][site]["MIL"] += 1
+            self.island_site_holder[island][site]["MIL_MetaG"] += 1
     
             lat, lon = self._get_lat_lon(sampling_design_label)
             self.lat_lon_sets[island][site].add((lat, lon))
@@ -160,16 +154,16 @@ class FiguresTables:
         # Here we are ready to make the tables
         # Let's output the island table as a manually made tsv
         totals_dict = defaultdict(int)
-        island_site_table = ["\t".join(["Island", "Site", "Latitude", "Longitude", "POC_MetaG", "POC_DivFG", "POC_MetaG_DivFG", "POR_MetaG", "POR_DivFG", "POR_MetaG_DivFG", "MIL"])]
+        island_site_table = ["\t".join(["Island", "Site", "Latitude", "Longitude", "POC_MetaG", "POR_MetaG", "MIL_MetaG"])]
         i_keys = sorted(self.island_site_holder.keys())
         for i_key in i_keys:
             s_keys = sorted(self.island_site_holder[i_key].keys())
             for s_key in s_keys:
                 join_list_island_site_info = [str(_) for _ in [i_key, s_key, list(self.lat_lon_sets[i_key][s_key])[0][0], list(self.lat_lon_sets[i_key][s_key])[0][1]]]
                 c_dict = self.island_site_holder[i_key][s_key]
-                for k in ["POC_MetaG", "POC_DivFG", "POC_MetaG_DivFG", "POR_MetaG", "POR_DivFG", "POR_MetaG_DivFG", "MIL"]:
+                for k in ["POC_MetaG", "POR_MetaG", "MIL_MetaG"]:
                     totals_dict[k] += c_dict[k]
-                join_list_counts = [c_dict["POC_MetaG"], c_dict["POC_DivFG"], c_dict["POC_MetaG_DivFG"], c_dict["POR_MetaG"], c_dict["POR_DivFG"], c_dict["POR_MetaG_DivFG"], c_dict["MIL"]]
+                join_list_counts = [c_dict["POC_MetaG"], c_dict["POR_MetaG"], c_dict["MIL_MetaG"]]
                 join_list_island_site_info.extend([str(_) for _ in join_list_counts])
                 island_site_table.append("\t".join(join_list_island_site_info))
         
@@ -178,7 +172,7 @@ class FiguresTables:
             for line in island_site_table:
                 f.write(f"{line}\n")
             totals = []
-            for k in ["POC_MetaG", "POC_DivFG", "POC_MetaG_DivFG", "POR_MetaG", "POR_DivFG", "POR_MetaG_DivFG", "MIL"]:
+            for k in ["POC_MetaG", "POR_MetaG", "MIL_MetaG"]:
                 totals.append(str(totals_dict[k]))
             totals_str = "\t".join(totals)
             f.write(f"Totals\t\t\t\t{totals_str}\n")
@@ -193,7 +187,7 @@ class FiguresTables:
                 self.island_site_holder[island][site] = self._make_count_dict()
 
     def _make_count_dict(self):
-        return {"POC_MetaG":0, "POC_DivFG":0, "POC_MetaG_DivFG":0, "POR_MetaG":0, "POR_DivFG":0, "POR_MetaG_DivFG":0, "MIL":0}
+        return {"POC_MetaG":0, "POR_MetaG":0, "MIL_MetaG":0}
 
     def _get_lat_lon(self, sampling_design_label):
         # Grab the lat lon using the design_label
